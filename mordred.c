@@ -9,8 +9,44 @@
 struct dirblock {
     char *path;
     char *selected;
+    char **files;
     int column;
+    int n_files;
 };
+
+int get_number_of_files(const char *path) {
+    DIR *dir = opendir(path);
+    struct dirent *entry;
+    int quantity = 0;
+    while((entry = readdir(dir)) != NULL) {
+        quantity++;
+    }
+
+    closedir(dir);
+    return quantity;
+}
+
+void get_files(const char *path, char **files) {
+    int fileslen = get_number_of_files(path);
+    DIR *dir = opendir(path);
+    struct dirent *entry;
+    int i = 0;
+    
+    while((entry = readdir(dir)) != NULL) {
+        files[i++] = strdup(entry->d_name); 
+    }
+    
+    closedir(dir);
+}
+
+struct dirblock get_dirblock(char *path, int column) {
+    int fileslen = get_number_of_files(path);
+    char **files = malloc(sizeof(char *) * fileslen);
+    get_files(path, files);
+    char *selected = files[0];
+
+    return (struct dirblock) {path, selected, files, column, fileslen};
+}
 
 int get_term_height() {
     struct winsize w;
@@ -103,11 +139,32 @@ void print_blocks(struct dirblock *blocks, int block_q) {
     }
 }
 
+char *get_next_file(struct dirblock *block, int blocklen) {
+    char *next_file;
+    for (int i = 0; i < blocklen; i++) {
+        if (equal_strings(block->files[i], block->selected)) {
+            if (i == blocklen - 1) {
+                next_file = strdup(block->files[0]);
+            } else {
+                next_file = strdup(block->files[i+1]);
+            }
+        }
+    }
+
+    return next_file;
+}
+
 int main(int argc, char *argv[]) {
     struct dirblock *blocks = NULL;
-    int block_q = 0;
-    int x = 10, y = 5; // posición inicial
+    int block_q = 1;
     int ch;
+    char *path;
+
+    if (argc > 1) {
+        path = argv[argc-1];
+    } else {
+        path = ".";
+    }
 
     initscr();            // Inicia ncurses
     noecho();             // No mostrar teclas pulsadas
@@ -116,17 +173,9 @@ int main(int argc, char *argv[]) {
     cbreak();             // Leer input sin esperar Enter
     keypad(stdscr, TRUE); // Habilitar teclas especiales
     curs_set(0);          // Oculta el cursor
-    // Bucle principal
 
-    char *current_selected;
-    char *current_path = (argc > 1 ? argv[1] : ".");
-    DIR *current_dir = opendir(current_path);
-    struct dirent *entry;
-    entry = readdir(current_dir);
-    current_selected = entry->d_name;
-    blocks = realloc(blocks, sizeof(struct dirblock) * (block_q + 1));
-    blocks[block_q] = (struct dirblock) {current_path, ".", 0};
-    block_q++;
+    blocks = realloc(blocks, sizeof(struct dirblock) * block_q);
+    blocks[block_q - 1] = get_dirblock(path, 0);
     struct dirblock *current_block = &blocks[block_q - 1];
     int next_column_start = 0;
 
@@ -140,37 +189,30 @@ int main(int argc, char *argv[]) {
         if (ch == 'q') break; // Salir con 'q'
         
         switch (ch) {
-            case KEY_UP:{
-            y = (y > 0) ? y - 1 : y;
+            case KEY_UP:
             break;
-            }
             case KEY_DOWN:{
-            if ((entry = readdir(current_dir)) == NULL) {
-                rewinddir(current_dir);
-                entry = readdir(current_dir);
-            }
-            current_block->selected = strdup(entry->d_name);
-            y = (y < LINES - 1) ? y + 1 : y;
+                current_block->selected = get_next_file(current_block, current_block->n_files);
+                
             break;
             case KEY_LEFT:
-            x = (x > 0) ? x - 1 : x;
+                if (block_q > 1) {
+                    next_column_start -= get_size_longest_name(current_block->path) + 3;
+                    blocks = realloc(blocks, sizeof(struct dirblock) * (block_q));
+                    current_block = &blocks[block_q - 2];
+                    block_q--;
+                }
             break;}
             case KEY_RIGHT: {
-                char newpath[strlen(current_block->path) + strlen(entry->d_name) + 2];
-                snprintf(newpath, sizeof(newpath), "%s/%s", (current_block->path), entry->d_name);
-                char *prev_path = strdup(current_block->path);
-                if (is_directory(newpath) && !equal_strings(current_selected, ".") || is_directory(newpath) && !equal_strings(current_selected, "..")) {
+                char newpath[strlen(current_block->path) + strlen(current_block->selected) + 2];
+                snprintf(newpath, sizeof(newpath), "%s/%s", current_block->path, current_block->selected);
+                if (is_directory(newpath) && !(equal_strings(current_block->selected ,".") || equal_strings(current_block->selected ,".."))) {
+                    next_column_start += get_size_longest_name(current_block->path) + 2; 
                     blocks = realloc(blocks, sizeof(struct dirblock) * (block_q + 1));
-                    next_column_start += get_size_longest_name(prev_path) + 2; 
-                    blocks[block_q] = (struct dirblock) {strdup(newpath), strdup("."), next_column_start};
+                    blocks[block_q] = get_dirblock(strdup(newpath), next_column_start);
                     current_block = &blocks[block_q];
                     block_q++;
-                    closedir(current_dir);
-                    current_dir = opendir(newpath);
-                    entry = readdir(current_dir);
                 } 
-                free(prev_path);
-                x = (x < COLS - 1) ? x + 1 : x;
                 break;
             }          
         }
