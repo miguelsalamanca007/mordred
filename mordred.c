@@ -147,7 +147,6 @@ char *get_filename_formatted(char *filename, int column_size) {
     return f_string;
 }
 
-
 void print_block(struct dirblock block) {
     int column_size = get_size_longest_name(block.path) + 3;
     for (int i = 0; i < block.n_files; i++) {
@@ -210,6 +209,18 @@ int get_next_column(struct dirblock *blocks, int block_q) {
     return nc;
 }
 
+bool can_draw_next_block(char *path, struct dirblock *blocks, int block_q) {
+    int nc = get_next_column(blocks, block_q);
+    int longest_name = get_size_longest_name(path);
+    int right_limit = nc + longest_name;
+
+    if (right_limit < get_term_width()) {
+        return true;
+    }
+
+    return false;
+}
+
 int main(int argc, char *argv[]) {
     struct dirblock *blocks = NULL;
     int block_q = 1;
@@ -260,10 +271,14 @@ int main(int argc, char *argv[]) {
                 }
             break;
             case KEY_RIGHT: {
+
                 char newpath[strlen(current_block->path) + strlen(current_block->selected) + 2];
                 snprintf(newpath, sizeof(newpath), "%s/%s", current_block->path, current_block->selected);
-                if (is_directory(newpath) && !(equal_strings(current_block->selected ,".") || equal_strings(current_block->selected ,".."))) {
+                if (is_directory(newpath) && can_draw_next_block(newpath, blocks, block_q) && !(equal_strings(current_block->selected ,".") || equal_strings(current_block->selected ,".."))) {
                     int next_column = get_next_column(blocks, block_q);
+
+                    
+
                     blocks = realloc(blocks, sizeof(struct dirblock) * (block_q + 1));
                     blocks[block_q++] = get_dirblock(strdup(newpath), next_column);
                     current_block = &blocks[block_q - 1];
