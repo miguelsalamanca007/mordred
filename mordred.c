@@ -129,7 +129,7 @@ bool is_directory(const char *path) {
     return S_ISDIR(statbuf.st_mode);
 }
 
-void print_top_bar() {
+void print_top_bar(const char *path, char *selected) {
     int term_width = get_term_width();
     char *bar = pad_string("", term_width, ' ');
     const char *username = get_username();
@@ -142,9 +142,16 @@ void print_top_bar() {
 
     strncpy(bar, content, needed);
 
-    attron(COLOR_PAIR(1));
-    mvprintw(0, 0, bar);
-    attroff(COLOR_PAIR(1));
+    attron(COLOR_PAIR(2));
+    mvprintw(0, 0, content);
+    attroff(COLOR_PAIR(2));
+
+    attron(COLOR_PAIR(3));
+    mvprintw(0, needed + 1, "%s/", path);
+    attroff(COLOR_PAIR(3));
+
+    mvprintw(0, needed + strlen(path) +  2, "%s", selected);
+
 }
 
 void print_bottom_bar(char *selected_file, char *selected_dir) {
@@ -177,7 +184,6 @@ char *get_filename_formatted(char *filename, int column_size) {
     int needed = snprintf(NULL, 0, " %s", filename);
     char *content = malloc(needed + 1);
     snprintf(content, needed + 1, " %s", filename);
-
     strncpy(f_string, content, needed);
 
     return f_string;
@@ -277,6 +283,9 @@ int main(int argc, char *argv[]) {
     noecho();             // No mostrar teclas pulsadas
     start_color();        // Habilitar colores
     init_pair(1, COLOR_BLACK, COLOR_CYAN);
+    init_pair(2, COLOR_GREEN, COLOR_BLACK);
+    init_pair(3, COLOR_RED, COLOR_BLACK);
+
     cbreak();             // Leer input sin esperar Enter
     keypad(stdscr, TRUE); // Habilitar teclas especiales
     curs_set(0);          // Oculta el cursor
@@ -289,7 +298,7 @@ int main(int argc, char *argv[]) {
         clear(); // Limpiar pantalla
         print_blocks(blocks, block_q, starting_row);
         print_bottom_bar(current_block->selected, current_block->path);
-        print_top_bar();
+        print_top_bar(current_block->path, current_block->selected);
         refresh(); // Mostrarlo
     
         ch = getch(); // Esperar tecla
