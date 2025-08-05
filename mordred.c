@@ -5,6 +5,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
+#include <pwd.h>
+#include <stdio.h>
 
 struct dirblock {
     char *path;
@@ -13,6 +15,22 @@ struct dirblock {
     int column;
     int n_files;
 };
+
+const char *get_username() {
+    struct passwd *pw = getpwuid(getuid());
+    if (pw) {
+        return pw->pw_name;
+    } else {
+        return "unknown";
+    }
+}
+
+void get_hostname(char *buffer, size_t size) {
+    if (gethostname(buffer, size) != 0) {
+        strncpy(buffer, "unknown", size);
+        buffer[size - 1] = '\0'; // ensure null-termination
+    }
+}
 
 int get_number_of_files(const char *path) {
     DIR *dir = opendir(path);
@@ -111,7 +129,25 @@ bool is_directory(const char *path) {
     return S_ISDIR(statbuf.st_mode);
 }
 
-void printbar(char *selected_file, char *selected_dir) {
+void print_top_bar() {
+    int term_width = get_term_width();
+    char *bar = pad_string("", term_width, ' ');
+    const char *username = get_username();
+    char hostname[256];
+    get_hostname(hostname, sizeof(hostname));
+
+    int needed = snprintf(NULL, 0, " %s@%s", username, hostname);
+    char *content = malloc(needed + 1);
+    snprintf(content, needed + 1, " %s@%s", username, hostname);
+
+    strncpy(bar, content, needed);
+
+    attron(COLOR_PAIR(1));
+    mvprintw(0, 0, bar);
+    attroff(COLOR_PAIR(1));
+}
+
+void print_bottom_bar(char *selected_file, char *selected_dir) {
     int term_height = get_term_height();
     int term_width = get_term_width();
     char *bar = pad_string("", term_width, ' ');
@@ -147,26 +183,29 @@ char *get_filename_formatted(char *filename, int column_size) {
     return f_string;
 }
 
-void print_block(struct dirblock block) {
+void print_block(struct dirblock block, int starting_row) {
     int column_size = get_size_longest_name(block.path) + 3;
+    int sr = starting_row;
     for (int i = 0; i < block.n_files; i++) {
         if (equal_strings(block.selected, block.files[i])) {
             attron(COLOR_PAIR(1));
             char *fted_string = get_filename_formatted(block.files[i], column_size);
-            mvprintw(i, block.column, "%s", fted_string);
+            mvprintw(sr, block.column, "%s", fted_string);
             attroff(COLOR_PAIR(1));
             free(fted_string);
+            sr++;
         } else {
             char *fted_string = get_filename_formatted(block.files[i], column_size);
-            mvprintw(i, block.column, "%s", fted_string);
+            mvprintw(sr, block.column, "%s", fted_string);
             free(fted_string);
+            sr++;
         }
     }
 }
 
-void print_blocks(struct dirblock *blocks, int block_q) {
+void print_blocks(struct dirblock *blocks, int block_q, int starting_row) {
     for (int i = 0; i < block_q; i++) {
-        print_block(blocks[i]);
+        print_block(blocks[i], starting_row);
     }
 }
 
@@ -226,6 +265,7 @@ int main(int argc, char *argv[]) {
     int block_q = 1;
     int ch;
     char *path;
+    int starting_row = 1;
 
     if (argc > 1) {
         path = argv[argc-1];
@@ -247,8 +287,9 @@ int main(int argc, char *argv[]) {
 
     while (1) {
         clear(); // Limpiar pantalla
-        print_blocks(blocks, block_q);
-        printbar(current_block->selected, current_block->path);
+        print_blocks(blocks, block_q, starting_row);
+        print_bottom_bar(current_block->selected, current_block->path);
+        print_top_bar();
         refresh(); // Mostrarlo
     
         ch = getch(); // Esperar tecla
@@ -276,9 +317,6 @@ int main(int argc, char *argv[]) {
                 snprintf(newpath, sizeof(newpath), "%s/%s", current_block->path, current_block->selected);
                 if (is_directory(newpath) && can_draw_next_block(newpath, blocks, block_q) && !(equal_strings(current_block->selected ,".") || equal_strings(current_block->selected ,".."))) {
                     int next_column = get_next_column(blocks, block_q);
-
-                    
-
                     blocks = realloc(blocks, sizeof(struct dirblock) * (block_q + 1));
                     blocks[block_q++] = get_dirblock(strdup(newpath), next_column);
                     current_block = &blocks[block_q - 1];
