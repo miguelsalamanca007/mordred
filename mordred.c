@@ -7,6 +7,14 @@
 #include <sys/ioctl.h>
 #include <pwd.h>
 #include <stdio.h>
+#include <locale.h>
+
+#define UPPER_RIGHT_CORNER ACS_URCORNER
+#define LOWER_RIGHT_CORNER ACS_LRCORNER  
+#define UPPER_LEFT_CORNER ACS_ULCORNER
+#define LOWER_LEFT_CORNER ACS_LLCORNER
+#define HORIZONTAL_LINE ACS_HLINE
+#define VERTICAL_LINE ACS_VLINE
 
 struct dirblock {
     char *path;
@@ -32,11 +40,18 @@ void get_hostname(char *buffer, size_t size) {
     }
 }
 
+bool equal_strings(const char *a, const char *b) {
+    return strcmp(a, b) == 0 ? 1 : 0;
+}
+
 int get_number_of_files(const char *path) {
     DIR *dir = opendir(path);
     struct dirent *entry;
     int quantity = 0;
     while((entry = readdir(dir)) != NULL) {
+        if (equal_strings(entry->d_name, ".") || equal_strings(entry->d_name, "..")) {
+            continue;
+        }
         quantity++;
     }
 
@@ -51,6 +66,9 @@ void get_files(const char *path, char **files) {
     int i = 0;
     
     while((entry = readdir(dir)) != NULL) {
+        if (equal_strings(entry->d_name, ".") || equal_strings(entry->d_name, "..")) {
+            continue;
+        }
         files[i++] = strdup(entry->d_name); 
     }
     
@@ -175,22 +193,18 @@ void print_bottom_bar(char *selected_file, char *selected_dir) {
     free(content);
 }
 
-bool equal_strings(const char *a, const char *b) {
-    return strcmp(a, b) == 0 ? 1 : 0;
-}
-
 char *get_filename_formatted(char *filename, int column_size) {
     char *f_string = pad_string("", column_size, ' ');
     int needed = snprintf(NULL, 0, " %s", filename);
     char *content = malloc(needed + 1);
-    snprintf(content, needed + 1, " %s", filename);
+    snprintf(content, needed + 1, "  %s", filename);
     strncpy(f_string, content, needed);
 
     return f_string;
 }
 
 void print_block(struct dirblock block, int starting_row) {
-    int column_size = get_size_longest_name(block.path) + 3;
+    int column_size = get_size_longest_name(block.path) + 5;
     int sr = starting_row;
     for (int i = 0; i < block.n_files; i++) {
         if (equal_strings(block.selected, block.files[i])) {
@@ -248,7 +262,7 @@ char *get_previous_file(struct dirblock *block, int blocklen) {
 int get_next_column(struct dirblock *blocks, int block_q) {
     int nc = 0;
     for (int i = 0; i < block_q; i++) {
-        nc += get_size_longest_name(blocks[i].path) + 3;
+        nc += get_size_longest_name(blocks[i].path) + 5;
     }
 
     return nc;
@@ -264,6 +278,29 @@ bool can_draw_next_block(char *path, struct dirblock *blocks, int block_q) {
     }
 
     return false;
+}
+
+void print_borders(struct dirblock *blocks, int block_q, int starting_row) {
+    int box_height = get_term_height() - 1;
+    int box_width = get_term_width();
+    
+    for (int i = 0; i < box_width; i++) {
+        for (int j = starting_row; j < box_height; j++) {
+            if(j == starting_row && i == 0) {
+                mvaddch(j, i, UPPER_LEFT_CORNER);
+            } else if (j == starting_row && i == box_width - 1) {
+                mvaddch(j, i, UPPER_RIGHT_CORNER);
+            } else if (i == 0 && j == box_height - 1) {
+                mvaddch(j, i, LOWER_LEFT_CORNER);
+            } else if (i == box_width - 1 && j == box_height - 1) {
+                mvaddch(j, i, LOWER_RIGHT_CORNER);
+            } else if (j == starting_row || j == box_height - 1) {
+                mvaddch(j, i, HORIZONTAL_LINE);
+            } else if (i == 0 || i == box_width - 1) {
+                mvaddch(j, i, VERTICAL_LINE);
+            }
+        }
+    }
 }
 
 int main(int argc, char *argv[]) {
@@ -289,16 +326,21 @@ int main(int argc, char *argv[]) {
     cbreak();             // Leer input sin esperar Enter
     keypad(stdscr, TRUE); // Habilitar teclas especiales
     curs_set(0);          // Oculta el cursor
+    setlocale(LC_ALL, "");
 
     blocks = realloc(blocks, sizeof(struct dirblock) * block_q);
     blocks[block_q - 1] = get_dirblock(path, 0);
     struct dirblock *current_block = &blocks[block_q - 1];
+    
+    
 
     while (1) {
         clear(); // Limpiar pantalla
-        print_blocks(blocks, block_q, starting_row);
+        print_blocks(blocks, block_q, starting_row + 1);
         print_bottom_bar(current_block->selected, current_block->path);
         print_top_bar(current_block->path, current_block->selected);
+        print_borders(blocks, block_q, starting_row);
+        
         refresh(); // Mostrarlo
     
         ch = getch(); // Esperar tecla
@@ -330,6 +372,7 @@ int main(int argc, char *argv[]) {
                     blocks[block_q++] = get_dirblock(strdup(newpath), next_column);
                     current_block = &blocks[block_q - 1];
                 } 
+
                 break;
             }          
         }
@@ -338,3 +381,4 @@ int main(int argc, char *argv[]) {
     endwin(); // Terminar ncurses
     return 0;
 }
+
