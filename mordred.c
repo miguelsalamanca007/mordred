@@ -26,6 +26,7 @@ struct dirblock {
     char **files;
     int column;
     int n_files;
+    int selected_index;
 };
 
 const char *get_username() {
@@ -45,6 +46,9 @@ void get_hostname(char *buffer, size_t size) {
 }
 
 bool equal_strings(const char *a, const char *b) {
+    if (a == NULL || b == NULL) {
+        return NULL;
+    }
     return strcmp(a, b) == 0 ? 1 : 0;
 }
 
@@ -84,8 +88,9 @@ struct dirblock get_dirblock(char *path, int column) {
     char **files = malloc(sizeof(char *) * fileslen);
     get_files(path, files);
     char *selected = files[0];
+    int selected_index = 0;
 
-    return (struct dirblock) {path, selected, files, column, fileslen};
+    return (struct dirblock) {path, selected, files, column, fileslen, selected_index};
 }
 
 int get_term_height() {
@@ -182,27 +187,14 @@ void print_top_bar(const char *path, char *selected) {
 
 void print_bottom_bar(char *selected_file, char *selected_dir) {
     int term_height = get_term_height();
-    int term_width = get_term_width();
-    char *bar = pad_string("", term_width, ' ');
-
-    int needed = snprintf(NULL, 0, " directory: %s   selected: %s",
-                          selected_dir, selected_file);
-    char *content = malloc(needed + 1);
-    snprintf(content, needed + 1, " directory: %s   selected: %s",
-             selected_dir, selected_file);
-
-    strncpy(bar, content, needed);
-
-    attron(COLOR_PAIR(1));
-    mvprintw(term_height - 1, 0, bar);
-    attroff(COLOR_PAIR(1));
-
-    free(bar);
-    free(content);
+    attron(COLOR_PAIR(3));
+    mvprintw(term_height - 1, 0, "bottom bar not yet implemented...");
+    attroff(COLOR_PAIR(3));
 }
 
 char *get_filename_formatted(char *filename, int column_size) {
     char *fted_str = malloc(column_size * sizeof(char));
+
     if (fted_str == NULL) {
         return NULL;
     }
@@ -217,24 +209,55 @@ char *get_filename_formatted(char *filename, int column_size) {
     return fted_str;
 }
 
+char **get_slice_of_files(char **files, int files_size, int slice_size, int offset) {
+    char **slice;
+    slice = malloc(slice_size * sizeof(char *));
+
+    if (slice == NULL) {
+        printf("error de asignacion");
+    }
+    for (int i = 0; i < slice_size; i++) {
+        slice[i] = files[i + offset];
+    }
+    for (int i = 0; i < slice_size; i++) {
+        if (slice[i] == NULL) {
+            printf("What is happening here?");
+        }
+    }
+
+    return slice;
+}
+
 void print_block(struct dirblock block, int starting_row) {
-    int column_size = SPACES_AFTER_LEFT_BORDER + 1 + get_size_longest_name(block.path) + SPACES_BEFORE_RIGHT_BORDER + 1;
+    int column_size = 1 + SPACES_AFTER_LEFT_BORDER + get_size_longest_name(block.path) + SPACES_BEFORE_RIGHT_BORDER + 1;
     int sr = starting_row;
-    for (int i = 0; i < block.n_files; i++) {
-        if (equal_strings(block.selected, block.files[i])) {
-            char *fted_string = get_filename_formatted(block.files[i], column_size);
+    int slice_size = get_term_height() - 4;
+    int offset;
+
+    if (block.selected_index >= slice_size) {
+        offset = block.selected_index - slice_size + 1;
+    } else {
+        offset = 0;
+    }
+    slice_size = slice_size >= block.n_files ? block.n_files : slice_size;
+    char **slice = get_slice_of_files(block.files, block.n_files, slice_size, offset);
+    for (int i = 0; i < slice_size; i++) {
+        if (equal_strings(block.selected, slice[i])) {
+            char *fted_string = get_filename_formatted(slice[i], column_size);
             attron(COLOR_PAIR(1));
             mvprintw(sr, block.column, "%s", fted_string);
             attroff(COLOR_PAIR(1));
             free(fted_string);
             sr++;
         } else {
-            char *fted_string = get_filename_formatted(block.files[i], column_size);
+            char *fted_string = get_filename_formatted(slice[i], column_size);
             mvprintw(sr, block.column, "%s", fted_string);
             free(fted_string);
             sr++;
         }
     }
+
+    free(slice);
 }
 
 void print_blocks(struct dirblock *blocks, int block_q, int starting_row) {
@@ -312,7 +335,6 @@ void print_borders(struct dirblock *blocks, int block_q, int starting_row) {
         mvaddch(starting_row, i, HORIZONTAL_LINE);
         mvaddch(box_height - 1, i, HORIZONTAL_LINE);
     }
-    
 
     for (int i = 1; i < block_q; i++) {
         int column = blocks[i].column - 1;
@@ -374,11 +396,11 @@ int main(int argc, char *argv[]) {
         switch (ch) {
             case KEY_UP:
                 current_block->selected = get_previous_file(current_block, current_block->n_files);
-
+                current_block->selected_index = current_block->selected_index == 0 ? (current_block->n_files) - 1 : current_block->selected_index - 1;
             break;
             case KEY_DOWN:
                 current_block->selected = get_next_file(current_block, current_block->n_files);
-                
+                current_block->selected_index = current_block->selected_index == (current_block->n_files) - 1 ? 0 : current_block->selected_index + 1;
             break;
             case KEY_LEFT:
                 if (block_q > 1) {
@@ -388,7 +410,6 @@ int main(int argc, char *argv[]) {
                 }
             break;
             case KEY_RIGHT: {
-
                 char newpath[strlen(current_block->path) + strlen(current_block->selected) + 2];
                 snprintf(newpath, sizeof(newpath), "%s/%s", current_block->path, current_block->selected);
                 if (is_directory(newpath) && can_draw_next_block(newpath, blocks, block_q) && !(equal_strings(current_block->selected ,".") || equal_strings(current_block->selected ,".."))) {
