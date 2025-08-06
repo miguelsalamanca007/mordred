@@ -15,6 +15,10 @@
 #define LOWER_LEFT_CORNER ACS_LLCORNER
 #define HORIZONTAL_LINE ACS_HLINE
 #define VERTICAL_LINE ACS_VLINE
+#define TEE_DOWN ACS_TTEE 
+#define TEE_UP ACS_BTEE 
+#define SPACES_AFTER_LEFT_BORDER 1
+#define SPACES_BEFORE_RIGHT_BORDER 3
 
 struct dirblock {
     char *path;
@@ -92,6 +96,8 @@ int get_term_height() {
         return 80; // Default terminal width instead of returning 1
     }
     int term_height = w.ws_row;
+    // Para debugger:
+    term_height = 48;
     return term_height;
 }
 
@@ -103,6 +109,8 @@ int get_term_width() {
         return 80; // Default terminal width instead of returning 1
     }
     int term_width = w.ws_col;
+    // Para debugger:
+    term_width = 116;
     return term_width;
 }
 
@@ -194,22 +202,28 @@ void print_bottom_bar(char *selected_file, char *selected_dir) {
 }
 
 char *get_filename_formatted(char *filename, int column_size) {
-    char *f_string = pad_string("", column_size, ' ');
-    int needed = snprintf(NULL, 0, " %s", filename);
-    char *content = malloc(needed + 1);
-    snprintf(content, needed + 1, "  %s", filename);
-    strncpy(f_string, content, needed);
+    char *fted_str = malloc(column_size * sizeof(char));
+    if (fted_str == NULL) {
+        return NULL;
+    }
+    for (int i = 0; i < column_size; i++) {
+        fted_str[i] = ' ';
+    }
+    for (int i = 0; i < strlen(filename); i++) {
+        fted_str[i + SPACES_AFTER_LEFT_BORDER] = filename[i];
+    }
+    fted_str[column_size - 1] = '\0';
 
-    return f_string;
+    return fted_str;
 }
 
 void print_block(struct dirblock block, int starting_row) {
-    int column_size = get_size_longest_name(block.path) + 5;
+    int column_size = SPACES_AFTER_LEFT_BORDER + 1 + get_size_longest_name(block.path) + SPACES_BEFORE_RIGHT_BORDER + 1;
     int sr = starting_row;
     for (int i = 0; i < block.n_files; i++) {
         if (equal_strings(block.selected, block.files[i])) {
-            attron(COLOR_PAIR(1));
             char *fted_string = get_filename_formatted(block.files[i], column_size);
+            attron(COLOR_PAIR(1));
             mvprintw(sr, block.column, "%s", fted_string);
             attroff(COLOR_PAIR(1));
             free(fted_string);
@@ -262,7 +276,7 @@ char *get_previous_file(struct dirblock *block, int blocklen) {
 int get_next_column(struct dirblock *blocks, int block_q) {
     int nc = 0;
     for (int i = 0; i < block_q; i++) {
-        nc += get_size_longest_name(blocks[i].path) + 5;
+        nc += get_size_longest_name(blocks[i].path) + SPACES_AFTER_LEFT_BORDER + SPACES_BEFORE_RIGHT_BORDER + 2;
     }
 
     return nc;
@@ -283,21 +297,32 @@ bool can_draw_next_block(char *path, struct dirblock *blocks, int block_q) {
 void print_borders(struct dirblock *blocks, int block_q, int starting_row) {
     int box_height = get_term_height() - 1;
     int box_width = get_term_width();
+
+    mvaddch(starting_row, 0, UPPER_LEFT_CORNER);
+    mvaddch(starting_row, box_width - 1, UPPER_RIGHT_CORNER);
+    mvaddch(box_height - 1, 0, LOWER_LEFT_CORNER);
+    mvaddch(box_height - 1, box_width - 1, LOWER_RIGHT_CORNER);
+
+    for (int j = starting_row + 1; j < box_height - 1; j++) {
+        mvaddch(j, 0, VERTICAL_LINE);
+        mvaddch(j, box_width - 1, VERTICAL_LINE);
+    }
+
+    for (int i = 0 + 1; i < box_width - 1; i++) {
+        mvaddch(starting_row, i, HORIZONTAL_LINE);
+        mvaddch(box_height - 1, i, HORIZONTAL_LINE);
+    }
     
-    for (int i = 0; i < box_width; i++) {
+
+    for (int i = 1; i < block_q; i++) {
+        int column = blocks[i].column - 1;
         for (int j = starting_row; j < box_height; j++) {
-            if(j == starting_row && i == 0) {
-                mvaddch(j, i, UPPER_LEFT_CORNER);
-            } else if (j == starting_row && i == box_width - 1) {
-                mvaddch(j, i, UPPER_RIGHT_CORNER);
-            } else if (i == 0 && j == box_height - 1) {
-                mvaddch(j, i, LOWER_LEFT_CORNER);
-            } else if (i == box_width - 1 && j == box_height - 1) {
-                mvaddch(j, i, LOWER_RIGHT_CORNER);
-            } else if (j == starting_row || j == box_height - 1) {
-                mvaddch(j, i, HORIZONTAL_LINE);
-            } else if (i == 0 || i == box_width - 1) {
-                mvaddch(j, i, VERTICAL_LINE);
+            if (j == starting_row) {
+                mvaddch(j, column, TEE_DOWN);
+            } else if (j == box_height - 1) {
+                mvaddch(j, column, TEE_UP);
+            } else {
+                mvaddch(j, column, VERTICAL_LINE);
             }
         }
     }
