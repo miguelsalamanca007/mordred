@@ -228,8 +228,13 @@ char **get_slice_of_files(char **files, int files_size, int slice_size, int offs
     return slice;
 }
 
+int get_column_size(const char *path) {
+    return 1 + SPACES_AFTER_LEFT_BORDER + get_size_longest_name(path) + SPACES_BEFORE_RIGHT_BORDER;
+}
+
 void print_block(struct dirblock block, int starting_row) {
-    int column_size = 1 + SPACES_AFTER_LEFT_BORDER + get_size_longest_name(block.path) + SPACES_BEFORE_RIGHT_BORDER + 1;
+    int column_size = get_column_size(block.path);
+    // int column_size = 1 + SPACES_AFTER_LEFT_BORDER + get_size_longest_name(block.path) + SPACES_BEFORE_RIGHT_BORDER + 1;
     int sr = starting_row;
     int slice_size = get_term_height() - 4;
     int offset;
@@ -297,9 +302,13 @@ char *get_previous_file(struct dirblock *block, int blocklen) {
 }
 
 int get_next_column(struct dirblock *blocks, int block_q) {
-    int nc = 0;
+    int nc = 1;
+    if (block_q < 1) {
+        return nc;
+    }
+
     for (int i = 0; i < block_q; i++) {
-        nc += get_size_longest_name(blocks[i].path) + SPACES_AFTER_LEFT_BORDER + SPACES_BEFORE_RIGHT_BORDER + 2;
+        nc += get_column_size(blocks[i].path);
     }
 
     return nc;
@@ -352,7 +361,7 @@ void print_borders(struct dirblock *blocks, int block_q, int starting_row) {
 
 int main(int argc, char *argv[]) {
     struct dirblock *blocks = NULL;
-    int block_q = 1;
+    int block_q = 0;
     int ch;
     char *path;
     int starting_row = 1;
@@ -375,19 +384,18 @@ int main(int argc, char *argv[]) {
     curs_set(0);          // Oculta el cursor
     setlocale(LC_ALL, "");
 
-    blocks = realloc(blocks, sizeof(struct dirblock) * block_q);
-    blocks[block_q - 1] = get_dirblock(path, 0);
-    struct dirblock *current_block = &blocks[block_q - 1];
+    blocks = realloc(blocks, sizeof(struct dirblock));
+    int next_column = get_next_column(blocks, block_q);
+    blocks[block_q] = get_dirblock(path, next_column);
+    struct dirblock *current_block = &blocks[block_q];
+    block_q++;
     
-    
-
     while (1) {
         clear(); // Limpiar pantalla
         print_blocks(blocks, block_q, starting_row + 1);
         print_bottom_bar(current_block->selected, current_block->path);
         print_top_bar(current_block->path, current_block->selected);
-        print_borders(blocks, block_q, starting_row);
-        
+        print_borders(blocks, block_q, starting_row); 
         refresh(); // Mostrarlo
     
         ch = getch(); // Esperar tecla
