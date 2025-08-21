@@ -247,30 +247,6 @@ void filename_formatted(char *src, char *dst, int column_size)
     }
 }
 
-char **get_slice_of_files(char **files, int files_size, int slice_size, int offset)
-{
-    char **slice;
-    slice = malloc(slice_size * sizeof(char *));
-
-    if (slice == NULL)
-    {
-        printf("error de asignacion");
-    }
-    for (int i = 0; i < slice_size; i++)
-    {
-        slice[i] = files[i + offset];
-    }
-    for (int i = 0; i < slice_size; i++)
-    {
-        if (slice[i] == NULL)
-        {
-            printf("What is happening here?");
-        }
-    }
-
-    return slice;
-}
-
 int get_column_size(const char *path)
 {
     return 1 + SPACES_AFTER_LEFT_BORDER + get_size_longest_name(path) + SPACES_BEFORE_RIGHT_BORDER;
@@ -301,7 +277,7 @@ void print_block(struct dirblock block)
     }
 }
 
-void print_blocks(struct dirblock *blocks, int block_q, int starting_row)
+void print_blocks(struct dirblock *blocks, int block_q)
 {
     for (int i = 0; i < block_q; i++)
     {
@@ -361,7 +337,7 @@ int get_next_column(struct dirblock *blocks, int block_q)
 
     for (int i = 0; i < block_q; i++)
     {
-        nc += get_column_size(blocks[i].path);
+        nc += get_column_size(blocks[i].path) + 1;
     }
 
     return nc;
@@ -383,8 +359,8 @@ bool can_draw_next_block(char *path, struct dirblock *blocks, int block_q)
 
 void print_borders(struct dirblock *blocks, int block_q, int starting_row)
 {
-    int box_height = get_term_height() - 1;
-    int box_width = get_term_width();
+    int box_height = wd.term_height - 1;
+    int box_width = wd.term_width;
 
     mvaddch(starting_row, 0, UPPER_LEFT_CORNER);
     mvaddch(starting_row, box_width - 1, UPPER_RIGHT_CORNER);
@@ -426,8 +402,9 @@ void print_borders(struct dirblock *blocks, int block_q, int starting_row)
 
 char *get_new_path(char *path, char *filename)
 {
-    char *newpath = malloc(sizeof(path) + sizeof(filename) + 2);
-    snprintf(newpath, sizeof(newpath), "%s/%s", path, filename);
+    size_t np_size = sizeof(char) * (strlen(path) + strlen(filename) + strlen("/") + 1);
+    char *newpath = malloc(np_size);
+    snprintf(newpath, sizeof(char) * np_size, "%s/%s", path, filename);
 
     return newpath;
 }
@@ -449,16 +426,16 @@ void add_block()
 {
     if (wd.block_quantity == 0)
     {
-        wd.blocks = malloc(sizeof(struct window));
+        wd.blocks = malloc(sizeof(struct dirblock));
         wd.blocks[0] = get_dirblock(wd.path, 1);
         wd.block_quantity = 1;
         wd.current_block = &wd.blocks[0];
     }
     else
     {
-        wd.blocks = realloc(wd.blocks, sizeof(struct window) * (wd.block_quantity + 1));
         int next_column = get_next_column(wd.blocks, wd.block_quantity);
         char *newpath = get_new_path(wd.current_block->path, wd.current_block->selected);
+        wd.blocks = realloc(wd.blocks, sizeof(struct dirblock) * (wd.block_quantity + 1));
         wd.blocks[wd.block_quantity] = get_dirblock(newpath, next_column);
         wd.current_block = &wd.blocks[wd.block_quantity];
         wd.block_quantity++;
@@ -468,7 +445,7 @@ void add_block()
 void delete_block() {
     if (wd.block_quantity > 1) {
         wd.blocks = realloc(wd.blocks, sizeof(struct dirblock) * (wd.block_quantity - 1));
-        wd.current_block = &wd.blocks[wd.block_quantity - 1];
+        wd.current_block = &wd.blocks[wd.block_quantity - 2];
         wd.block_quantity--;
     }
 }
@@ -491,7 +468,7 @@ void start_loop()
     while (1)
     {
         clear(); // Limpiar pantalla
-        print_blocks(wd.blocks, wd.block_quantity, wd.box_row);
+        print_blocks(wd.blocks, wd.block_quantity);
         print_bottom_bar(wd.current_block->selected, wd.current_block->path);
         print_top_bar(wd.current_block->path, wd.current_block->selected);
         print_borders(wd.blocks, wd.block_quantity, wd.box_row);
