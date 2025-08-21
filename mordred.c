@@ -235,27 +235,6 @@ void print_bottom_bar(char *selected_file, char *selected_dir)
     attroff(COLOR_PAIR(3));
 }
 
-char *get_filename_formatted(char *filename, int column_size)
-{
-    char *fted_str = malloc(column_size * sizeof(char));
-
-    if (fted_str == NULL)
-    {
-        return NULL;
-    }
-    for (int i = 0; i < column_size; i++)
-    {
-        fted_str[i] = ' ';
-    }
-    for (int i = 0; i < strlen(filename); i++)
-    {
-        fted_str[i + SPACES_AFTER_LEFT_BORDER] = filename[i];
-    }
-    fted_str[column_size - 1] = '\0';
-
-    return fted_str;
-}
-
 void filename_formatted(char *src, char *dst, int column_size)
 {
     for (int i = 0; i < column_size; i++)
@@ -321,48 +300,6 @@ void print_block(struct dirblock block)
         starting_row++;
     }
 }
-
-/*
-void print_block(struct dirblock block, int starting_row)
-{
-    int column_size = get_column_size(block.path);
-    // int column_size = 1 + SPACES_AFTER_LEFT_BORDER + get_size_longest_name(block.path) + SPACES_BEFORE_RIGHT_BORDER + 1;
-    int sr = starting_row;
-    int slice_size = wd.term_height - 4;
-    int offset;
-    
-    if (block.selected_index >= slice_size)
-    {
-        offset = block.selected_index - slice_size + 1;
-    }
-    else
-    {
-        offset = 0;
-    }
-    slice_size = slice_size >= block.n_files ? block.n_files : slice_size;
-    char **slice = get_slice_of_files(block.files, block.n_files, slice_size, offset);
-    for (int i = 0; i < slice_size; i++)
-    {
-        if (equal_strings(block.selected, slice[i]))
-        {
-            char *fted_string = get_filename_formatted(slice[i], column_size);
-            attron(COLOR_PAIR(1));
-            mvprintw(sr, block.column, "%s", fted_string);
-            attroff(COLOR_PAIR(1));
-            free(fted_string);
-            sr++;
-        }
-        else
-        {
-            char *fted_string = get_filename_formatted(slice[i], column_size);
-            mvprintw(sr, block.column, "%s", fted_string);
-            free(fted_string);
-            sr++;
-        }
-    }    
-    free(slice);
-}
-*/
 
 void print_blocks(struct dirblock *blocks, int block_q, int starting_row)
 {
