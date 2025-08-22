@@ -18,7 +18,7 @@
 #define TEE_DOWN ACS_TTEE
 #define TEE_UP ACS_BTEE
 #define SPACES_AFTER_LEFT_BORDER 1
-#define SPACES_BEFORE_RIGHT_BORDER 3
+#define SPACES_BEFORE_RIGHT_BORDER 5
 
 struct dirblock
 {
@@ -28,6 +28,7 @@ struct dirblock
     int column;
     int n_files;
     int selected_index;
+    int column_size;
 };
 
 struct window
@@ -113,6 +114,28 @@ void get_files(const char *path, char **files)
     closedir(dir);
 }
 
+int get_size_longest_name(const char *path)
+{
+    DIR *dir = opendir(path);
+    struct dirent *entry;
+    int longest = 0;
+    while ((entry = readdir(dir)) != NULL)
+    {
+        if (strlen(entry->d_name) > longest)
+        {
+            longest = strlen(entry->d_name);
+        }
+    }
+
+    closedir(dir);
+    return longest;
+}
+
+int get_column_size(const char *path)
+{
+    return SPACES_AFTER_LEFT_BORDER + get_size_longest_name(path) + SPACES_BEFORE_RIGHT_BORDER;
+}
+
 struct dirblock get_dirblock(char *path, int column)
 {
     int fileslen = get_number_of_files(path);
@@ -120,8 +143,9 @@ struct dirblock get_dirblock(char *path, int column)
     get_files(path, files);
     char *selected = files[0];
     int selected_index = 0;
+    int column_size = get_column_size(path);
 
-    return (struct dirblock){path, selected, files, column, fileslen, selected_index};
+    return (struct dirblock){path, selected, files, column, fileslen, selected_index, column_size};
 }
 
 int get_term_height()
@@ -175,23 +199,6 @@ char *pad_string(const char *input, size_t q, char fill_char)
     return result;
 }
 
-int get_size_longest_name(const char *path)
-{
-    DIR *dir = opendir(path);
-    struct dirent *entry;
-    int longest = 0;
-    while ((entry = readdir(dir)) != NULL)
-    {
-        if (strlen(entry->d_name) > longest)
-        {
-            longest = strlen(entry->d_name);
-        }
-    }
-
-    closedir(dir);
-    return longest;
-}
-
 bool is_directory(const char *path)
 {
     struct stat statbuf;
@@ -229,9 +236,8 @@ void print_top_bar(const char *path, char *selected)
 
 void print_bottom_bar(char *selected_file, char *selected_dir)
 {
-    int term_height = wd.bottom_bar_row;
     attron(COLOR_PAIR(3));
-    mvprintw(term_height - 1, 0, "bottom bar not yet implemented...");
+    mvprintw(wd.bottom_bar_row, 0, "bottom bar not yet implemented...");
     attroff(COLOR_PAIR(3));
 }
 
@@ -245,16 +251,11 @@ void filename_formatted(char *src, char *dst, int column_size)
     {
         dst[i + SPACES_AFTER_LEFT_BORDER] = src[i];
     }
-}
-
-int get_column_size(const char *path)
-{
-    return 1 + SPACES_AFTER_LEFT_BORDER + get_size_longest_name(path) + SPACES_BEFORE_RIGHT_BORDER;
+    dst[column_size] = '\0';
 }
 
 void print_block(struct dirblock block)
 {
-    int column_size = get_column_size(block.path);
     int starting_row = wd.box_row + 1;
     int box_height = (wd.bottom_bar_row - 1) - starting_row;
     int loop_limit = block.n_files < box_height ? block.n_files : box_height;
@@ -263,9 +264,9 @@ void print_block(struct dirblock block)
         offset = block.selected_index - (box_height - 1);
     }
 
-    char fted_string[column_size];
+    char fted_string[block.column_size];
     for (int i = 0; i < loop_limit; i++) {
-        filename_formatted(block.files[i + offset], fted_string, column_size);
+        filename_formatted(block.files[i + offset], fted_string, block.column_size);
         if (equal_strings(block.selected, block.files[i + offset])) {
             attron(COLOR_PAIR(1));
             mvprintw(starting_row, block.column, "%s", fted_string);
@@ -337,7 +338,7 @@ int get_next_column(struct dirblock *blocks, int block_q)
 
     for (int i = 0; i < block_q; i++)
     {
-        nc += get_column_size(blocks[i].path) + 1;
+        nc += blocks[i].column_size + 1;
     }
 
     return nc;
@@ -493,7 +494,9 @@ void start_loop()
             break;
         case KEY_RIGHT:
         {
-            add_block();
+            if (is_directory(get_new_path(wd.current_block->path, wd.current_block->selected))) {
+                add_block();
+            }
             break;
         }
         }
