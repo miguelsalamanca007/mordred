@@ -8,6 +8,7 @@
 #include <pwd.h>
 #include <stdio.h>
 #include <locale.h>
+#include <errno.h>
 
 #define UPPER_RIGHT_CORNER ACS_URCORNER
 #define LOWER_RIGHT_CORNER ACS_LRCORNER
@@ -201,8 +202,9 @@ int get_term_height()
         return 80; // Default terminal width instead of returning 1
     }
     int term_height = w.ws_row;
-    // Para debugger:
-    term_height = 48;
+    #ifdef DEBUG
+        term_height = 48;
+    #endif
     return term_height;
 }
 
@@ -215,8 +217,9 @@ int get_term_width()
         return 80; // Default terminal width instead of returning 1
     }
     int term_width = w.ws_col;
-    // Para debugger:
-    term_width = 116;
+    #ifdef DEBUG
+        term_width = 116;
+    #endif
     return term_width;
 }
 
@@ -405,7 +408,7 @@ bool can_draw_next_block(char *path, struct dirblock *blocks, int block_q)
     int longest_name = get_size_longest_name(path);
     int right_limit = nc + longest_name;
 
-    if (right_limit < get_term_width())
+    if (right_limit < wd.term_width)
     {
         return true;
     }
@@ -509,6 +512,71 @@ void start_window(char *path)
     add_block();
 }
 
+void show_message_bottom_bar(const char *message) {
+    attron(COLOR_PAIR(2));
+    mvprintw(wd.bottom_bar_row, 0, "%s, press any key to continue", message);
+    attroff(COLOR_PAIR(2));
+    getch();
+}
+
+bool delete_file(const char *path) {
+    struct stat st;
+    
+    if (stat(path, &st) != 0) {
+        if (errno == ENOENT) {
+            show_message_bottom_bar("Could not delete: file does not exist!");
+        } else {
+            show_message_bottom_bar("Could not delete: error verifying file");
+        }
+        return false;
+    }
+    
+    if (!S_ISREG(st.st_mode)) {
+        show_message_bottom_bar("Could not delete: file is not a regular file");
+        return false;
+    }
+    
+    if (remove(path) == 0) {
+        return true;
+    } else {
+        show_message_bottom_bar("Could not delete: error deleting file");
+        return false;
+    }
+}
+
+void delete_bar() {
+    int ch;
+    bool deleted = false;
+    attron(COLOR_PAIR(2));
+    mvprintw(wd.bottom_bar_row, 0, "are you sure you want to delete the file %s? [y/n]", wd.current_block->selected);
+    attroff(COLOR_PAIR(2));
+
+    while (1) {
+        ch = getch();
+        if (ch == 'y') {
+            char *path = get_new_path(wd.current_block->path, wd.current_block->selected);
+            deleted = delete_file(path);
+            break;
+        } else if (ch == 'n') {
+            return;
+        } else {
+            break;
+        }
+    }
+
+    move(wd.bottom_bar_row, 0);
+    clrtoeol();
+
+    if (deleted) {
+        *wd.current_block = get_dirblock(wd.current_block->path, wd.current_block->column);
+        attron(COLOR_PAIR(2));
+        mvprintw(wd.bottom_bar_row, 0, "file deleted successfully! press any key to continue", wd.current_block->selected);
+        attroff(COLOR_PAIR(2));
+    }
+
+    getch();
+}
+
 void start_loop()
 {
     int ch;   
@@ -544,6 +612,10 @@ void start_loop()
                 add_block();
             }
             break;
+        }
+        case 'd': 
+        {
+            delete_bar();
         }
         }
     }
