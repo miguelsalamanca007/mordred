@@ -46,16 +46,60 @@ struct window
 
 struct window wd;
 
-const char *get_username()
+void get_type_and_permissions(char *buffer, const char *path) {
+
+    struct stat st;
+    if (buffer && stat(path, &st) == 0) {
+        mode_t perm = st.st_mode;
+
+        if (S_ISREG(st.st_mode)) {
+            buffer[0] = 'r';
+        } else if (S_ISDIR(st.st_mode)) {
+            buffer[0] = 'd';
+        } else if (S_ISLNK(st.st_mode)) {
+            buffer[0] = 'l';
+        } else if (S_ISCHR(st.st_mode)) {
+            buffer[0] = 'c';
+        } else if (S_ISBLK(st.st_mode)) {
+            buffer[0] = 'b';
+        } else if (S_ISFIFO(st.st_mode)) {
+            buffer[0] = 'f';
+        } else if (S_ISSOCK(st.st_mode)) {
+            buffer[0] = 's';
+        } else {
+            buffer[0] = '#'; //unkown type
+        }
+
+        buffer[1] = (perm & S_IRUSR) ? 'r' : '-',
+        buffer[2] = (perm & S_IWUSR) ? 'w' : '-',
+        buffer[3] = (perm & S_IXUSR) ? 'x' : '-';
+
+        buffer[4] = (perm & S_IRGRP) ? 'r' : '-',
+        buffer[5] = (perm & S_IWGRP) ? 'w' : '-',
+        buffer[6] = (perm & S_IXGRP) ? 'x' : '-';
+
+        buffer[7] = (perm & S_IROTH) ? 'r' : '-',
+        buffer[8] = (perm & S_IWOTH) ? 'w' : '-',
+        buffer[9] = (perm & S_IXOTH) ? 'x' : '-';
+        buffer[10] = '\0';
+    } else {
+        strncpy(buffer, "unkown", 10); // 9 because there are 9 possible permission bits
+        buffer[10] = '\0';
+    }
+}
+
+void get_username(char *buffer, size_t size)
 {
     struct passwd *pw = getpwuid(getuid());
-    if (pw)
+    if (pw && buffer && size > 0)
     {
-        return pw->pw_name;
+        strncpy(buffer, pw->pw_name, size - 1);
+        buffer[size - 1] = '\0';
     }
-    else
+    else if (buffer && size > 0)
     {
-        return "unknown";
+        strncpy(buffer, "unkown", size - 1);
+        buffer[size - 1] = '\0';
     }
 }
 
@@ -211,33 +255,44 @@ bool is_directory(const char *path)
 
 void print_top_bar(const char *path, char *selected)
 {
-    int term_width = get_term_width();
-    char *bar = pad_string("", term_width, ' ');
-    const char *username = get_username();
+    int term_width = wd.term_width;
+    char username[256];
+    get_username(username, sizeof(username));
     char hostname[256];
     get_hostname(hostname, sizeof(hostname));
 
-    int needed = snprintf(NULL, 0, " %s@%s", username, hostname);
-    char *content = malloc(needed + 1);
-    snprintf(content, needed + 1, " %s@%s", username, hostname);
+    size_t leftlen = strlen(username) + strlen(hostname) + 2;
+    char names[leftlen];
 
-    strncpy(bar, content, needed);
+    snprintf(names, leftlen, "%s@%s", username, hostname);
 
     attron(COLOR_PAIR(2));
-    mvprintw(0, 0, "%s", content);
+    mvprintw(0, 0, "%s", names);
     attroff(COLOR_PAIR(2));
 
     attron(COLOR_PAIR(3));
-    mvprintw(0, needed + 1, "%s/", path);
+    mvprintw(0, strlen(names) + 1, "%s/", path);
     attroff(COLOR_PAIR(3));
 
-    mvprintw(0, needed + strlen(path) + 2, "%s", selected);
+    mvprintw(0, strlen(names) + strlen(path) + 2, "%s", selected);
+}
+
+char *get_new_path(char *path, char *filename)
+{
+    size_t np_size = sizeof(char) * (strlen(path) + strlen(filename) + strlen("/") + 1);
+    char *newpath = malloc(np_size);
+    snprintf(newpath, sizeof(char) * np_size, "%s/%s", path, filename);
+
+    return newpath;
 }
 
 void print_bottom_bar(char *selected_file, char *selected_dir)
 {
+    char permissions[11];
+    get_type_and_permissions(permissions, get_new_path(wd.current_block->path, wd.current_block->selected));
+
     attron(COLOR_PAIR(3));
-    mvprintw(wd.bottom_bar_row, 0, "bottom bar not yet implemented...");
+    mvprintw(wd.bottom_bar_row, 0, "%s", permissions);
     attroff(COLOR_PAIR(3));
 }
 
@@ -399,15 +454,6 @@ void print_borders(struct dirblock *blocks, int block_q, int starting_row)
             }
         }
     }
-}
-
-char *get_new_path(char *path, char *filename)
-{
-    size_t np_size = sizeof(char) * (strlen(path) + strlen(filename) + strlen("/") + 1);
-    char *newpath = malloc(np_size);
-    snprintf(newpath, sizeof(char) * np_size, "%s/%s", path, filename);
-
-    return newpath;
 }
 
 void start_ncurses(void)
