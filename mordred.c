@@ -10,16 +10,19 @@
 #include <locale.h>
 #include <errno.h>
 
-#define UPPER_RIGHT_CORNER ACS_URCORNER
-#define LOWER_RIGHT_CORNER ACS_LRCORNER
-#define UPPER_LEFT_CORNER ACS_ULCORNER
-#define LOWER_LEFT_CORNER ACS_LLCORNER
-#define HORIZONTAL_LINE ACS_HLINE
-#define VERTICAL_LINE ACS_VLINE
-#define TEE_DOWN ACS_TTEE
-#define TEE_UP ACS_BTEE
-#define SPACES_AFTER_LEFT_BORDER 1
+#define UPPER_RIGHT_CORNER         ACS_URCORNER
+#define LOWER_RIGHT_CORNER         ACS_LRCORNER
+#define UPPER_LEFT_CORNER          ACS_ULCORNER
+#define LOWER_LEFT_CORNER          ACS_LLCORNER
+#define HORIZONTAL_LINE            ACS_HLINE
+#define VERTICAL_LINE              ACS_VLINE
+#define TEE_DOWN                   ACS_TTEE
+#define TEE_UP                     ACS_BTEE
+#define SPACES_AFTER_LEFT_BORDER   1
 #define SPACES_BEFORE_RIGHT_BORDER 5
+
+#define K_ENTER     10
+#define K_BACKSPACE 127
 
 struct dirblock
 {
@@ -43,6 +46,7 @@ struct window
     struct dirblock *current_block;
     int block_quantity;
     char *path;
+    bool moving_file;
 };
 
 struct window wd;
@@ -282,6 +286,11 @@ void print_top_bar(const char *path, char *selected)
 
 char *get_new_path(char *path, char *filename)
 {
+
+    if (path == NULL || filename == NULL) {
+        return NULL;
+    }
+
     size_t np_size = sizeof(char) * (strlen(path) + strlen(filename) + strlen("/") + 1);
     char *newpath = malloc(np_size);
     snprintf(newpath, sizeof(char) * np_size, "%s/%s", path, filename);
@@ -289,14 +298,35 @@ char *get_new_path(char *path, char *filename)
     return newpath;
 }
 
+void print_normal_bottom_bar(char *selected_file, char *selected_dir) {
+    char permissions[11];
+    char *path = get_new_path(wd.current_block->path, wd.current_block->selected);
+
+    if (path != NULL) {
+        get_type_and_permissions(permissions, path);
+        free(path);
+        attron(COLOR_PAIR(3));
+        mvprintw(wd.bottom_bar_row, 0, "%s", permissions);
+        attroff(COLOR_PAIR(3));
+    } else {
+        mvprintw(wd.bottom_bar_row, 0, "Error getting type and permissions"); 
+    }
+
+}
+
+void print_moving_file_bar() {
+    attron(COLOR_PAIR(2));
+    mvprintw(wd.bottom_bar_row, 0, "Directory to move: %s", wd.current_block->path);
+    attroff(COLOR_PAIR(3));
+}
+
 void print_bottom_bar(char *selected_file, char *selected_dir)
 {
-    char permissions[11];
-    get_type_and_permissions(permissions, get_new_path(wd.current_block->path, wd.current_block->selected));
-
-    attron(COLOR_PAIR(3));
-    mvprintw(wd.bottom_bar_row, 0, "%s", permissions);
-    attroff(COLOR_PAIR(3));
+    if (wd.moving_file) {
+        print_moving_file_bar();
+    } else {
+        print_normal_bottom_bar(selected_file, selected_dir);
+    }
 }
 
 void filename_formatted(char *src, char *dst, int column_size)
@@ -485,10 +515,12 @@ void add_block()
     {
         int next_column = get_next_column(wd.blocks, wd.block_quantity);
         char *newpath = get_new_path(wd.current_block->path, wd.current_block->selected);
-        wd.blocks = realloc(wd.blocks, sizeof(struct dirblock) * (wd.block_quantity + 1));
-        wd.blocks[wd.block_quantity] = get_dirblock(newpath, next_column);
-        wd.current_block = &wd.blocks[wd.block_quantity];
-        wd.block_quantity++;
+        if (newpath != NULL) {
+            wd.blocks = realloc(wd.blocks, sizeof(struct dirblock) * (wd.block_quantity + 1));
+            wd.blocks[wd.block_quantity] = get_dirblock(newpath, next_column);
+            wd.current_block = &wd.blocks[wd.block_quantity];
+            wd.block_quantity++;
+        }
     }
 }
 
@@ -502,6 +534,7 @@ void delete_block() {
 
 void start_window(char *path)
 {
+    wd.moving_file = false;
     wd.term_height = get_term_height();
     wd.term_width = get_term_width();
     wd.top_bar_row = 0;
@@ -513,6 +546,9 @@ void start_window(char *path)
 }
 
 void show_message_bottom_bar(const char *message) {
+    move(wd.bottom_bar_row, 0);
+    clrtoeol();
+
     attron(COLOR_PAIR(2));
     mvprintw(wd.bottom_bar_row, 0, "%s, press any key to continue", message);
     attroff(COLOR_PAIR(2));
@@ -544,42 +580,270 @@ bool delete_file(const char *path) {
     }
 }
 
+bool create_file(char *filename) {
+    FILE *file;
+    char *path = get_new_path(wd.current_block->path, filename);
+
+    if (path == NULL) {
+        show_message_bottom_bar("Error, could not create new file");
+        return false;
+    }
+
+    file = fopen(path, "w");
+    if (file == NULL) {
+        show_message_bottom_bar("Error, could not create new file");
+        return false;
+    }
+
+    fclose(file);
+    return true;
+}
+
+void new_file_bar() {
+    int ch;
+    char *new_name = malloc(wd.term_width * sizeof(char));
+    char message[] = "New file name: ";
+    int message_len = strlen(message);
+    int column = message_len;
+    int i = 0;
+
+    while (1) {   
+        move(wd.bottom_bar_row, 0);
+        clrtoeol();
+        attron(COLOR_PAIR(2));
+        mvprintw(wd.bottom_bar_row, 0, "%s%s", message, new_name);
+        attroff(COLOR_PAIR(2));
+
+        ch = getch();
+
+        if (ch == KEY_BACKSPACE || ch == 127) {
+            if (column > message_len) {
+                i--;
+                new_name[i] = '\0';
+                column--;
+                mvaddch(wd.bottom_bar_row, column, ' ');
+                move(wd.bottom_bar_row, column);
+            } 
+            continue;
+        } else if (ch == KEY_ENTER || ch == K_ENTER) {
+            if (column > message_len) {
+                break;
+            } else {
+                show_message_bottom_bar("Filename cannot be empty");
+                continue;
+            }
+        }
+
+        attron(COLOR_PAIR(2));
+        mvaddch(wd.bottom_bar_row, column++, ch);
+        attroff(COLOR_PAIR(2));
+        new_name[i++] = ch;  
+        if (column >= wd.term_width - 1) {
+            break;
+        }
+    }
+
+    new_name[i] = '\0';
+
+    attron(COLOR_PAIR(2));
+    mvprintw(wd.bottom_bar_row, 0, "Create file %s? [y/n]", new_name);
+    attroff(COLOR_PAIR(2));
+    ch = getch();
+    if (ch == 'y' || ch == 'Y') {
+        if (create_file(new_name)) {
+            *wd.current_block = get_dirblock(wd.current_block->path, wd.current_block->column);
+            show_message_bottom_bar("File created successfully");
+        } else {
+            show_message_bottom_bar("There was an error creating the file");
+        }
+        free(new_name);
+    } else {
+        show_message_bottom_bar("File will not be created");
+    }
+}
+
 void delete_bar() {
     int ch;
     bool deleted = false;
     attron(COLOR_PAIR(2));
-    mvprintw(wd.bottom_bar_row, 0, "are you sure you want to delete the file %s? [y/n]", wd.current_block->selected);
+    mvprintw(wd.bottom_bar_row, 0, "Are you sure you want to delete the file %s? [y/n]", wd.current_block->selected);
     attroff(COLOR_PAIR(2));
 
-    while (1) {
-        ch = getch();
-        if (ch == 'y') {
-            char *path = get_new_path(wd.current_block->path, wd.current_block->selected);
-            deleted = delete_file(path);
-            break;
-        } else if (ch == 'n') {
+    ch = getch();
+    if (ch == 'y' || ch == 'Y') {
+        char *path = get_new_path(wd.current_block->path, wd.current_block->selected);
+        if (path == NULL) {
+            show_message_bottom_bar("Could not delete: error deleting file");
             return;
-        } else {
-            break;
         }
+        deleted = delete_file(path);
+        free(path);
+    } else if (ch == 'n' || ch == 'N') {
+        return;
+    } else {
+        show_message_bottom_bar("Wrong option selected: file will not be deleted");
+        return;
     }
 
     move(wd.bottom_bar_row, 0);
     clrtoeol();
 
     if (deleted) {
-        *wd.current_block = get_dirblock(wd.current_block->path, wd.current_block->column);
         attron(COLOR_PAIR(2));
-        mvprintw(wd.bottom_bar_row, 0, "file deleted successfully! press any key to continue", wd.current_block->selected);
+        mvprintw(wd.bottom_bar_row, 0, "File deleted successfully, press any key to continue");
         attroff(COLOR_PAIR(2));
+        *wd.current_block = get_dirblock(wd.current_block->path, wd.current_block->column);
+    }
+    getch();
+}
+
+bool copy_file(const char *src, const char *dest) {
+    FILE *f_src = fopen(src, "rb");
+    if (!f_src) {
+        show_message_bottom_bar("Error opening source file");
+        return false;
     }
 
-    getch();
+    FILE *f_dest = fopen(dest, "wb");
+    if (!f_dest) {
+        show_message_bottom_bar("Error opening destiny file");
+        fclose(f_src);
+        return false;
+    }
+
+    char buffer[4096];
+    size_t bytes;
+    while ((bytes = fread(buffer, 1, sizeof(buffer), f_src)) > 0) {
+        fwrite(buffer, 1, bytes, f_dest);
+    }
+
+    fclose(f_src);
+    fclose(f_dest);
+    return true;
+}
+
+void move_bar(char *src) {
+    int ch;
+    ch = getch();
+    mvprintw(wd.bottom_bar_row, 0, "Are you sure you want to move the file [y/n]");
+
+    if (ch == 'y' || ch == 'Y') {
+        copy_file(src, wd.current_block->path);
+    } else if (ch == 'n' || ch == 'N') {
+        show_message_bottom_bar("File will not be moved");
+    } else {
+        show_message_bottom_bar("Error moving file");
+    }
+
+}
+
+bool rename_file(char *current_name, char *new_name) {
+    struct stat st;
+
+    char *current_path = get_new_path(wd.current_block->path, current_name);
+    char *new_path = get_new_path(wd.current_block->path, new_name);
+
+    if (current_path == NULL) {
+        show_message_bottom_bar("Could not rename file: error finding current path");
+        return false;
+    }
+
+    if (new_path == NULL) {
+        show_message_bottom_bar("Could not rename file: error finding new path");
+        return false;
+    }
+
+    if (stat(current_path, &st) != 0) {
+        if (errno == ENOENT) {
+            show_message_bottom_bar("Could not rename file: file does not exist!");
+        } else {
+            show_message_bottom_bar("Could not rename file: error verifying file");
+        }
+        return false;
+    }
+
+    if (stat(new_path, &st) == 0) {
+        show_message_bottom_bar("Could not rename file: file already exist!");
+        return false;
+    }
+
+    if (rename(current_path, new_path) == 0) {
+        show_message_bottom_bar("File renamed!");
+        return true;
+    } else {
+        show_message_bottom_bar("Error renaming file");
+        return false;
+    }
+
+}
+
+void rename_bar() {
+    int ch;
+    char *new_name = malloc(wd.term_width * sizeof(char));
+    char message[] = "New name: ";
+    int message_len = strlen(message);
+    int column = message_len;
+    int i = 0;
+
+    while (1) {   
+        move(wd.bottom_bar_row, 0);
+        clrtoeol();
+        attron(COLOR_PAIR(2));
+        mvprintw(wd.bottom_bar_row, 0, "%s%s", message, new_name);
+        attroff(COLOR_PAIR(2));
+
+        ch = getch();
+
+        if (ch == KEY_BACKSPACE || ch == 127) {
+            if (column > message_len) {
+                i--;
+                new_name[i] = '\0';
+                column--;
+                mvaddch(wd.bottom_bar_row, column, ' ');
+                move(wd.bottom_bar_row, column);
+            } 
+            continue;
+        } else if (ch == KEY_ENTER || ch == K_ENTER) {
+            if (column > message_len) {
+                break;
+            } else {
+                show_message_bottom_bar("Filename cannot be empty");
+                continue;
+            }
+        }
+
+        attron(COLOR_PAIR(2));
+        mvaddch(wd.bottom_bar_row, column++, ch);
+        attroff(COLOR_PAIR(2));
+        new_name[i++] = ch;  
+        if (column >= wd.term_width - 1) {
+            break;
+        }
+    }
+
+    new_name[i] = '\0';
+
+    attron(COLOR_PAIR(2));
+    mvprintw(wd.bottom_bar_row, 0, "Rename file as %s? [y/n]", new_name);
+    attroff(COLOR_PAIR(2));
+    ch = getch();
+    if (ch == 'y' || ch == 'Y') {
+        if (rename_file(wd.current_block->selected, new_name)) {
+            *wd.current_block = get_dirblock(wd.current_block->path, wd.current_block->column);
+        } else {
+            show_message_bottom_bar("There was an error renaming the file");
+        }
+        free(new_name);
+    } else {
+        show_message_bottom_bar("File will not be renamed");
+    }
 }
 
 void start_loop()
 {
     int ch;   
+    char *file_to_copy;
+    char *path_to_copy;
     while (1)
     {
         clear(); // Limpiar pantalla
@@ -595,28 +859,70 @@ void start_loop()
 
         switch (ch)
         {
-        case KEY_UP:
-            wd.current_block->selected = get_previous_file(wd.current_block, wd.current_block->n_files);
-            wd.current_block->selected_index = wd.current_block->selected_index == 0 ? (wd.current_block->n_files) - 1 : wd.current_block->selected_index - 1;
-            break;
-        case KEY_DOWN:
-            wd.current_block->selected = get_next_file(wd.current_block, wd.current_block->n_files);
-            wd.current_block->selected_index = wd.current_block->selected_index == (wd.current_block->n_files) - 1 ? 0 : wd.current_block->selected_index + 1;
-            break;
-        case KEY_LEFT:
-            delete_block();
-            break;
-        case KEY_RIGHT:
-        {
-            if (is_directory(get_new_path(wd.current_block->path, wd.current_block->selected))) {
-                add_block();
+            case KEY_UP:
+                wd.current_block->selected = get_previous_file(wd.current_block, wd.current_block->n_files);
+                wd.current_block->selected_index = wd.current_block->selected_index == 0 ? (wd.current_block->n_files) - 1 : wd.current_block->selected_index - 1;
+                break;
+            case KEY_DOWN:
+                wd.current_block->selected = get_next_file(wd.current_block, wd.current_block->n_files);
+                wd.current_block->selected_index = wd.current_block->selected_index == (wd.current_block->n_files) - 1 ? 0 : wd.current_block->selected_index + 1;
+                break;
+            case KEY_LEFT:
+                delete_block();
+                break;
+            case KEY_RIGHT:
+            {
+                char *newpath = get_new_path(wd.current_block->path, wd.current_block->selected);
+                if (newpath != NULL) {
+                    if (is_directory(newpath)) {
+                        add_block();
+                    }
+                }
+                break;
             }
-            break;
-        }
-        case 'd': 
-        {
-            delete_bar();
-        }
+            case 'd': 
+            {
+                delete_bar();
+                break;
+            }
+            case 'r':
+            {
+                rename_bar();
+                break;
+            }
+            case 'n':
+            {
+                new_file_bar();
+                break;
+            }
+            case 'm':
+            {
+                if (!wd.moving_file) {
+                    path_to_copy = strdup(wd.current_block->path);
+                    file_to_copy = strdup(wd.current_block->selected);
+                    char *path = get_new_path(wd.current_block->path, wd.current_block->selected);
+                    wd.moving_file = true;
+                } else {
+                    wd.moving_file = false;
+                }
+                break;
+            }
+            case K_ENTER:
+            {
+                if (wd.moving_file) {
+                    char *src = get_new_path(path_to_copy, file_to_copy);
+                    char *dst = get_new_path(wd.current_block->path, file_to_copy);
+                    if (src == NULL || dst == NULL) {
+                        break;
+                    }
+                    if (copy_file(src, dst)) {
+                        wd.moving_file = false;
+                        *wd.current_block = get_dirblock(wd.current_block->path, wd.current_block->column);
+                        show_message_bottom_bar("File moved successfully");
+                    }
+                }
+                break;
+            }
         }
     }
 
