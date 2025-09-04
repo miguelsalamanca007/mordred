@@ -24,6 +24,8 @@
 #define K_ENTER     10
 #define K_BACKSPACE 127
 
+char *TEXT_FILE_EXTENSIONS[] = {".txt", ".py", ".c", ".java"};
+
 struct dirblock
 {
     char *path;
@@ -51,8 +53,33 @@ struct window
 
 struct window wd;
 
-void get_type_and_permissions(char *buffer, const char *path) {
+static int compare_strings(const void *a, const void *b) {
+    return strcmp(*(const char**)a, *(const char**)b);
+}
 
+static void sort_files(char **files, int n_files) {
+    if (!files) return;
+    
+    if (n_files > 0) {
+        qsort(files, (size_t) n_files, sizeof(char*), compare_strings);
+    }
+}
+
+// returns the column to start writing text
+int get_column_by_index(int i) {
+    if (i != 0 && i != 1) {
+        return 0;
+    }
+
+    if (i == 0) {
+        return wd.term_width / 8 + 2;
+    } else {
+        return wd.term_width / 2;
+    }
+
+}
+
+void get_type_and_permissions(char *buffer, const char *path) {
     struct stat st;
     if (buffer && stat(path, &st) == 0) {
         mode_t perm = st.st_mode;
@@ -93,41 +120,32 @@ void get_type_and_permissions(char *buffer, const char *path) {
     }
 }
 
-void get_username(char *buffer, size_t size)
-{
+void get_username(char *buffer, size_t size) {
     struct passwd *pw = getpwuid(getuid());
-    if (pw && buffer && size > 0)
-    {
+    if (pw && buffer && size > 0) {
         strncpy(buffer, pw->pw_name, size - 1);
         buffer[size - 1] = '\0';
-    }
-    else if (buffer && size > 0)
-    {
-        strncpy(buffer, "unkown", size - 1);
+    } else if (buffer && size > 0) {
+        strncpy(buffer, "unknown", size - 1);
         buffer[size - 1] = '\0';
     }
 }
 
-void get_hostname(char *buffer, size_t size)
-{
-    if (gethostname(buffer, size) != 0)
-    {
+void get_hostname(char *buffer, size_t size) {
+    if (gethostname(buffer, size) != 0) {
         strncpy(buffer, "unknown", size);
         buffer[size - 1] = '\0'; // ensure null-termination
     }
 }
 
-bool equal_strings(const char *a, const char *b)
-{
-    if (a == NULL || b == NULL)
-    {
-        return NULL;
+bool equal_strings(const char *a, const char *b) {
+    if (!a || !b) {
+        return false;
     }
     return strcmp(a, b) == 0 ? 1 : 0;
 }
 
-int get_number_of_files(const char *path)
-{
+int get_number_of_files(const char *path) {
     DIR *dir = opendir(path);
     struct dirent *entry;
     int quantity = 0;
@@ -144,8 +162,7 @@ int get_number_of_files(const char *path)
     return quantity;
 }
 
-void get_files(const char *path, char **files)
-{
+void get_files(const char *path, char **files) {
     int fileslen = get_number_of_files(path);
     DIR *dir = opendir(path);
     struct dirent *entry;
@@ -163,8 +180,7 @@ void get_files(const char *path, char **files)
     closedir(dir);
 }
 
-int get_size_longest_name(const char *path)
-{
+int get_size_longest_name(const char *path) {
     DIR *dir = opendir(path);
     struct dirent *entry;
     int longest = 0;
@@ -180,16 +196,15 @@ int get_size_longest_name(const char *path)
     return longest;
 }
 
-int get_column_size(const char *path)
-{
+int get_column_size(const char *path) {
     return SPACES_AFTER_LEFT_BORDER + get_size_longest_name(path) + SPACES_BEFORE_RIGHT_BORDER;
 }
 
-struct dirblock get_dirblock(char *path, int column)
-{
+struct dirblock get_dirblock(char *path, int column) {
     int fileslen = get_number_of_files(path);
     char **files = malloc(sizeof(char *) * fileslen);
     get_files(path, files);
+    sort_files(files, fileslen);
     char *selected = files[0];
     int selected_index = 0;
     int column_size = get_column_size(path);
@@ -197,8 +212,7 @@ struct dirblock get_dirblock(char *path, int column)
     return (struct dirblock){path, selected, files, column, fileslen, selected_index, column_size};
 }
 
-int get_term_height()
-{
+int get_term_height() {
     struct winsize w;
     if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) == -1)
     {
@@ -212,8 +226,7 @@ int get_term_height()
     return term_height;
 }
 
-int get_term_width()
-{
+int get_term_width() {
     struct winsize w;
     if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) == -1)
     {
@@ -227,42 +240,15 @@ int get_term_width()
     return term_width;
 }
 
-char *pad_string(const char *input, size_t q, char fill_char)
-{
-    size_t len = strlen(input);
-    if (len >= q)
-    {
-        char *result = malloc(len + 1);
-        if (!result)
-            return NULL;
-        strcpy(result, input);
-        return result;
-    }
-    char *result = malloc(q + 1);
-    if (!result)
-        return NULL;
-    strcpy(result, input);
-    for (size_t i = len; i < q; i++)
-    {
-        result[i] = fill_char;
-    }
-    result[q] = '\0';
-    return result;
-}
-
-bool is_directory(const char *path)
-{
+bool is_directory(const char *path) {
     struct stat statbuf;
-    if (stat(path, &statbuf) != 0)
-    {
+    if (stat(path, &statbuf) != 0) {
         return false; // Path doesn't exist or can't be accessed
     }
     return S_ISDIR(statbuf.st_mode);
 }
 
-void print_top_bar(const char *path, char *selected)
-{
-    int term_width = wd.term_width;
+void print_top_bar(const char *path, char *selected) {
     char username[256];
     get_username(username, sizeof(username));
     char hostname[256];
@@ -284,9 +270,7 @@ void print_top_bar(const char *path, char *selected)
     mvprintw(0, strlen(names) + strlen(path) + 2, "%s", selected);
 }
 
-char *get_new_path(char *path, char *filename)
-{
-
+char *get_new_path(char *path, char *filename) {
     if (path == NULL || filename == NULL) {
         return NULL;
     }
@@ -300,6 +284,8 @@ char *get_new_path(char *path, char *filename)
 
 void print_normal_bottom_bar(char *selected_file, char *selected_dir) {
     char permissions[11];
+    char opt_message[] = "Press o for options";
+    int mes_col = wd.term_width - strlen(opt_message);
     char *path = get_new_path(wd.current_block->path, wd.current_block->selected);
 
     if (path != NULL) {
@@ -307,6 +293,7 @@ void print_normal_bottom_bar(char *selected_file, char *selected_dir) {
         free(path);
         attron(COLOR_PAIR(3));
         mvprintw(wd.bottom_bar_row, 0, "%s", permissions);
+        mvprintw(wd.bottom_bar_row, mes_col, opt_message);
         attroff(COLOR_PAIR(3));
     } else {
         mvprintw(wd.bottom_bar_row, 0, "Error getting type and permissions"); 
@@ -329,21 +316,39 @@ void print_bottom_bar(char *selected_file, char *selected_dir)
     }
 }
 
-void filename_formatted(char *src, char *dst, int column_size)
-{
-    for (int i = 0; i < column_size; i++)
-    {
-        dst[i] = ' ';
-    }
-    for (int i = 0; i < strlen(src); i++)
-    {
-        dst[i + SPACES_AFTER_LEFT_BORDER] = src[i];
+void filename_formatted(char *src, char *dst, int column_size) {
+    memset(dst, ' ', column_size);
+    if (column_size < strlen(src)) {
+        for (int i = 0; i < column_size - 2; i++) {
+            dst[i + SPACES_AFTER_LEFT_BORDER] = src[i];
+        }
+        dst[column_size - 2] = '~';
+    } else {
+        for (int i = 0; i < strlen(src); i++) {
+            dst[i + SPACES_AFTER_LEFT_BORDER] = src[i];
+        }
     }
     dst[column_size] = '\0';
 }
 
-void print_block(struct dirblock block)
+void print_block(struct dirblock block, int index)
 {
+
+    if (index != 1 && index != 0) {
+        return;
+    }
+
+    int column_size;
+    int column;
+
+    if (index == 0) {
+        column_size = (get_column_by_index(0) - 2) - 1;
+        column = 1;
+    } else if (index == 1) {
+        column_size = ((get_column_by_index(1) - 2) - 1) - ((get_column_by_index(0) - 2) - 1);
+        column = get_column_by_index(0) - 1;
+    }
+
     int starting_row = wd.box_row + 1;
     int box_height = (wd.bottom_bar_row - 1) - starting_row;
     int loop_limit = block.n_files < box_height ? block.n_files : box_height;
@@ -352,15 +357,15 @@ void print_block(struct dirblock block)
         offset = block.selected_index - (box_height - 1);
     }
 
-    char fted_string[block.column_size];
+    char fted_string[column_size];
     for (int i = 0; i < loop_limit; i++) {
-        filename_formatted(block.files[i + offset], fted_string, block.column_size);
+        filename_formatted(block.files[i + offset], fted_string, column_size);
         if (equal_strings(block.selected, block.files[i + offset])) {
             attron(COLOR_PAIR(1));
-            mvprintw(starting_row, block.column, "%s", fted_string);
+            mvprintw(starting_row, column, "%s", fted_string);
             attroff(COLOR_PAIR(1));
         } else {
-            mvprintw(starting_row, block.column, "%s", fted_string);
+            mvprintw(starting_row, column, "%s", fted_string);
         }
         starting_row++;
     }
@@ -368,9 +373,11 @@ void print_block(struct dirblock block)
 
 void print_blocks(struct dirblock *blocks, int block_q)
 {
-    for (int i = 0; i < block_q; i++)
-    {
-        print_block(blocks[i]);
+    if (block_q >= 2) {
+        print_block(blocks[block_q - 1], 1);
+        print_block(blocks[block_q - 2], 0);
+    } else if (block_q == 1) {
+        print_block(blocks[0], 0);
     }
 }
 
@@ -451,26 +458,32 @@ void print_borders(struct dirblock *blocks, int block_q, int starting_row)
     int box_height = wd.term_height - 1;
     int box_width = wd.term_width;
 
+    // Printing corners
     mvaddch(starting_row, 0, UPPER_LEFT_CORNER);
     mvaddch(starting_row, box_width - 1, UPPER_RIGHT_CORNER);
     mvaddch(box_height - 1, 0, LOWER_LEFT_CORNER);
     mvaddch(box_height - 1, box_width - 1, LOWER_RIGHT_CORNER);
 
+    // Printing side vertical lines
     for (int j = starting_row + 1; j < box_height - 1; j++)
     {
         mvaddch(j, 0, VERTICAL_LINE);
         mvaddch(j, box_width - 1, VERTICAL_LINE);
     }
 
+    // Printing side horizontal lines
     for (int i = 0 + 1; i < box_width - 1; i++)
     {
         mvaddch(starting_row, i, HORIZONTAL_LINE);
         mvaddch(box_height - 1, i, HORIZONTAL_LINE);
     }
 
-    for (int i = 1; i < block_q; i++)
+    int loop_limit = block_q >= 2 ? 2 : block_q;
+
+    // Printing block lines
+    for (int i = 0; i < loop_limit; i++)
     {
-        int column = blocks[i].column - 1;
+        int column = get_column_by_index(i) - 2;
         for (int j = starting_row; j < box_height; j++)
         {
             if (j == starting_row)
@@ -839,6 +852,64 @@ void rename_bar() {
     }
 }
 
+bool is_regular(char *path) {
+    struct stat path_stat;
+
+    if (stat(path, &path_stat) != 0) {
+        // Error: file does not exist or cannot be accessed
+        return false;
+    }
+
+    return S_ISREG(path_stat.st_mode);
+}
+
+bool is_printable(char *path) {
+    if (!is_regular(path)) {
+        return false;
+    }
+
+    int n = sizeof(TEXT_FILE_EXTENSIONS) / sizeof(TEXT_FILE_EXTENSIONS[0]);
+
+    for (int i = 0; i < n; i++) {
+        if(strstr(path, TEXT_FILE_EXTENSIONS[i]) != NULL) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+void print_overview(char *path) {
+
+    if (!is_printable(path)) {
+        return;
+    }
+
+    FILE *fp = fopen(path, "r");
+    if (!fp) {
+        return;
+    }
+
+    char *line = NULL;
+    size_t len = 0;
+    ssize_t read;
+    int column = (wd.block_quantity >= 2) ? get_column_by_index(1) : get_column_by_index(0);
+    int quantity = 0;
+    int max_width = (wd.term_width / 2) - 10;
+
+    do
+    {
+        if ((read = getline(&line, &len, fp)) == -1) {
+            break;
+        }
+        mvaddnstr(wd.box_row + 1 + quantity, column, line, max_width);
+        quantity++;
+    } while (quantity < wd.term_height - 4);
+    
+    free(line);
+    fclose(fp);
+}
+
 void start_loop()
 {
     int ch;   
@@ -851,6 +922,7 @@ void start_loop()
         print_bottom_bar(wd.current_block->selected, wd.current_block->path);
         print_top_bar(wd.current_block->path, wd.current_block->selected);
         print_borders(wd.blocks, wd.block_quantity, wd.box_row);
+        print_overview(get_new_path(wd.current_block->path, wd.current_block->selected));
         refresh(); // Mostrarlo
 
         ch = getch(); // Esperar tecla
@@ -944,6 +1016,10 @@ int main(int argc, char *argv[])
 
     start_ncurses();
     start_window(path);
+    if (wd.term_width < 32) {
+        printf("Terminal should should have a width greater of equal than 32\n");
+        return EXIT_FAILURE;
+    }
     start_loop();
 
     // Terminar ncurses
